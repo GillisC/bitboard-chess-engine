@@ -1,6 +1,29 @@
 #include "board.h"
 #include <assert.h>
+#include <cstdint>
 #include <functional>
+
+static bool IsQueensideCastlingAvailable(const board *Board, side Side) {
+    uint16_t QueensideCastling;
+    if (Side == WHITE) {
+        QueensideCastling = (Board->state >> 1) & 0x1;
+    }
+    else {
+        QueensideCastling = (Board->state >> 3) & 0x1;
+    }
+    return QueensideCastling > 0 ? true : false;
+}
+
+static bool IsKingsideCastlingAvailable(const board *Board, side Side) {
+    uint16_t KingsideCastling;
+    if (Side == WHITE) {
+        KingsideCastling = (Board->state >> 2) & 0x1;
+    }
+    else {
+        KingsideCastling = (Board->state >> 4) & 0x1;
+    }
+    return KingsideCastling > 0 ? true : false;
+}
 
 move_list ML_Create(size_t InitialCapacity) {
     struct move_list Result = {};
@@ -194,369 +217,430 @@ void CalculateSlidingMoves(
 
 }
 /*
- * Given a board state, generate all available moves.
+ * Given a board state, and a side to calculate from generate all available moves.
  */
-void ComputeMoves(const board *Board, move_list *Moves) {
+void ComputeMoves(const board *Board, side Side, move_list *Moves) {
     ML_Clear(Moves);
 
-    if (SideToMove(Board->state) == 0) { 
-        /* White to move */
-        BoardBitField Occupied = GetOccupancy(Board);
-        BoardBitField OpposingOccupied = GetBlackOccupancy(Board);
-        BoardBitField PawnSource = Board->bitboards[WHITE_PAWN];
-
-        /* White pawn move generation. */
-        BoardBitField DoubleStepForward = ((PawnSource & RANK_2) << 16) & ~Occupied;
-        BoardBitField SingleStepForward = (PawnSource << 8) & ~Occupied;
-        BoardBitField DiagonalLeftAttack = ((PawnSource & ~FILE_A) << 7) & OpposingOccupied;
-        BoardBitField DiagonalRightAttack = ((PawnSource & ~FILE_H) << 9) & OpposingOccupied;
-        BoardBitField PromotionForward = ((PawnSource & RANK_7) << 8) & ~Occupied;
-        BoardBitField PromotionAttackLeft = ((PawnSource & RANK_7 & ~FILE_A) << 7) & OpposingOccupied;
-        BoardBitField PromotionAttackRight = ((PawnSource & RANK_7 & ~FILE_H) << 9) & OpposingOccupied;
-
-        while (SingleStepForward) {
-            BitFieldIndex Index = __builtin_ctzll(SingleStepForward);
-            BitFieldIndex Target = Index;
-            BitFieldIndex Source = Target - 8;
-
-            move Move = EncodeMove(Source, Target, QUIET);
-            ML_PushBack(Moves, Move);
-
-            SingleStepForward &= SingleStepForward - 1;
-        }
-
-        while (DoubleStepForward) {
-            BitFieldIndex Index = __builtin_ctzll(DoubleStepForward);
-            BitFieldIndex Target = Index;
-            BitFieldIndex Source = Target - 16;
-
-            move Move = EncodeMove(Source, Target, DOUBLE_PAWN_PUSH);
-            ML_PushBack(Moves, Move);
-
-            DoubleStepForward &= DoubleStepForward - 1;
-        }
-
-        while (DiagonalLeftAttack) {
-            BitFieldIndex Index = __builtin_ctzll(DiagonalLeftAttack);
-            BitFieldIndex Target = Index;
-            BitFieldIndex Source = Target - 7;
-
-            move Move = EncodeMove(Source, Target, CAPTURE);
-            ML_PushBack(Moves, Move);
-
-            DiagonalLeftAttack &= DiagonalLeftAttack - 1;
-        }
-
-        while (DiagonalRightAttack) {
-            BitFieldIndex Index = __builtin_ctzll(DiagonalRightAttack);
-            BitFieldIndex Target = Index;
-            BitFieldIndex Source = Target - 9;
-
-            move Move = EncodeMove(Source, Target, CAPTURE);
-            ML_PushBack(Moves, Move);
-
-            DiagonalRightAttack &= DiagonalRightAttack - 1;
-        }
-
-        while (PromotionForward) {
-            BitFieldIndex Index = __builtin_ctzll(PromotionForward);
-            BitFieldIndex Target = Index;
-            BitFieldIndex Source = Target - 8;
-
-            move KnightPromotion = EncodeMove(Source, Target, KNIGHT_PROMOTION);
-            move BishopPromotion = EncodeMove(Source, Target, BISHOP_PROMOTION);
-            move RookPromotion   = EncodeMove(Source, Target, ROOK_PROMOTION);
-            move QueenPromotion  = EncodeMove(Source, Target, QUEEN_PROMOTION);
-
-            ML_PushBack(Moves, KnightPromotion);
-            ML_PushBack(Moves, BishopPromotion);
-            ML_PushBack(Moves, RookPromotion);
-            ML_PushBack(Moves, QueenPromotion);
-
-            PromotionForward &= PromotionForward - 1;
-        }
-
-        while (PromotionAttackLeft) {
-            BitFieldIndex Index = __builtin_ctzll(PromotionAttackLeft);
-            BitFieldIndex Target = Index;
-            BitFieldIndex Source = Target - 7;
-
-            move KnightPromotion = EncodeMove(Source, Target, KNIGHT_PROMOTION_CAPTURE);
-            move BishopPromotion = EncodeMove(Source, Target, BISHOP_PROMOTION_CAPTURE);
-            move RookPromotion   = EncodeMove(Source, Target, ROOK_PROMOTION_CAPTURE);
-            move QueenPromotion  = EncodeMove(Source, Target, QUEEN_PROMOTION_CAPTURE);
-
-            ML_PushBack(Moves, KnightPromotion);
-            ML_PushBack(Moves, BishopPromotion);
-            ML_PushBack(Moves, RookPromotion);
-            ML_PushBack(Moves, QueenPromotion);
-
-            PromotionAttackLeft &= PromotionAttackLeft - 1;
-        }
-
-        while (PromotionAttackRight) {
-            BitFieldIndex Index = __builtin_ctzll(PromotionAttackRight);
-            BitFieldIndex Target = Index;
-            BitFieldIndex Source = Target - 9;
-
-            move KnightPromotion = EncodeMove(Source, Target, KNIGHT_PROMOTION_CAPTURE);
-            move BishopPromotion = EncodeMove(Source, Target, BISHOP_PROMOTION_CAPTURE);
-            move RookPromotion   = EncodeMove(Source, Target, ROOK_PROMOTION_CAPTURE);
-            move QueenPromotion  = EncodeMove(Source, Target, QUEEN_PROMOTION_CAPTURE);
-
-            ML_PushBack(Moves, KnightPromotion);
-            ML_PushBack(Moves, BishopPromotion);
-            ML_PushBack(Moves, RookPromotion);
-            ML_PushBack(Moves, QueenPromotion);
-
-            PromotionAttackRight &= PromotionAttackRight - 1;
-        }
-
-        /* White Rook move generation */
-        BoardBitField KnightSource = Board->bitboards[WHITE_KNIGHT];
-
-        while (KnightSource) {
-            BitFieldIndex SourceSquareIndex = __builtin_ctzll(PromotionAttackRight);
-            BoardBitField Targets = GetKnightAttacks(SourceSquareIndex);
-
-            BoardBitField QuietTargets  = Targets & ~Occupied;
-            BoardBitField CaptureTargets = Targets & OpposingOccupied;
-
-            while (QuietTargets) {
-                BitFieldIndex TargetIndex = __builtin_ctzll(QuietTargets);
-                ML_PushBack(Moves, EncodeMove(SourceSquareIndex, TargetIndex, QUIET));
-                QuietTargets &= QuietTargets - 1;
-            }
-
-            while (CaptureTargets) {
-                BitFieldIndex TargetIndex = __builtin_ctzll(CaptureTargets);
-                ML_PushBack(Moves, EncodeMove(SourceSquareIndex, TargetIndex, CAPTURE));
-                CaptureTargets &= CaptureTargets - 1;
-            }
-
-            KnightSource &= KnightSource - 1;
-        }
-
-        /* White Bishop move generation */
-        BoardBitField BishopsSource = Board->bitboards[WHITE_BISHOP];
-
-        while (BishopsSource) {
-            BitFieldIndex SourceSquareIndex = __builtin_ctzll(BishopsSource);
-            BoardBitField BishopSource = 1ULL << SourceSquareIndex;
-
-            /* Diagonal left-up */
-            CalculateSlidingMoves(
-                Moves, 
-                Board, 
-                BishopSource, 
-                WHITE, 
-                [](BoardBitField BitField) { return BitField << 7; },
-                ~FILE_A);
-
-            /* Diagonal left-down */
-            CalculateSlidingMoves(
-                Moves, 
-                Board, 
-                BishopSource, 
-                WHITE, 
-                [](BoardBitField BitField) { return BitField >> 9; },
-                ~FILE_A);
-
-            /* Diagonal right-up */
-            CalculateSlidingMoves(
-                Moves, 
-                Board, 
-                BishopSource, 
-                WHITE, 
-                [](BoardBitField BitField) { return BitField << 9; },
-                ~FILE_H);
-
-            /* Diagonal right-down */
-            CalculateSlidingMoves(
-                Moves, 
-                Board, 
-                BishopSource, 
-                WHITE, 
-                [](BoardBitField BitField) { return BitField >> 7; },
-                ~FILE_H);
-
-            BishopsSource &= BishopsSource - 1;
-        }
-
-        /* Rook move generation */
-        BoardBitField RooksSource = Board->bitboards[WHITE_ROOK];
-
-        while (RooksSource) {
-            BitFieldIndex SourceSquareIndex = __builtin_ctzll(RooksSource);
-            BoardBitField RookSource = 1ULL << SourceSquareIndex;
-
-            /* Up */
-            CalculateSlidingMoves(
-                Moves, 
-                Board, 
-                RookSource, 
-                WHITE, 
-                [](BoardBitField BitField) { return BitField << 8; },
-                ~RANK_8);
-
-            /* Down */
-            CalculateSlidingMoves(
-                Moves, 
-                Board, 
-                RookSource, 
-                WHITE, 
-                [](BoardBitField BitField) { return BitField >> 8; },
-                ~RANK_1);
-
-            /* Left */
-            CalculateSlidingMoves(
-                Moves, 
-                Board, 
-                RookSource, 
-                WHITE, 
-                [](BoardBitField BitField) { return BitField >> 1; },
-                ~FILE_A);
-
-            /* Right */
-            CalculateSlidingMoves(
-                Moves, 
-                Board, 
-                RookSource, 
-                WHITE, 
-                [](BoardBitField BitField) { return BitField << 1; },
-                ~FILE_H);
-
-            RooksSource &= RooksSource - 1;
-        }
-
-        /* Queen move generation */
-        BoardBitField QueensSource = Board->bitboards[WHITE_QUEEN];
-
-        while (QueensSource) {
-            BitFieldIndex SourceSquareIndex = __builtin_ctzll(QueensSource);
-            BoardBitField QueenSource = 1ULL << SourceSquareIndex;
-
-            /* Up */
-            CalculateSlidingMoves(
-                Moves, 
-                Board, 
-                QueenSource, 
-                WHITE, 
-                [](BoardBitField BitField) { return BitField << 8; },
-                ~RANK_8);
-
-            /* Down */
-            CalculateSlidingMoves(
-                Moves, 
-                Board, 
-                QueenSource, 
-                WHITE, 
-                [](BoardBitField BitField) { return BitField >> 8; },
-                ~RANK_1);
-
-            /* Left */
-            CalculateSlidingMoves(
-                Moves, 
-                Board, 
-                QueenSource, 
-                WHITE, 
-                [](BoardBitField BitField) { return BitField >> 1; },
-                ~FILE_A);
-
-            /* Right */
-            CalculateSlidingMoves(
-                Moves, 
-                Board, 
-                QueenSource, 
-                WHITE, 
-                [](BoardBitField BitField) { return BitField << 1; },
-                ~FILE_H);
-
-            /* Diagonal left-up */
-            CalculateSlidingMoves(
-                Moves, 
-                Board, 
-                QueenSource, 
-                WHITE, 
-                [](BoardBitField BitField) { return BitField << 7; },
-                ~FILE_A);
-
-            /* Diagonal left-down */
-            CalculateSlidingMoves(
-                Moves, 
-                Board, 
-                QueenSource, 
-                WHITE, 
-                [](BoardBitField BitField) { return BitField >> 9; },
-                ~FILE_A);
-
-            /* Diagonal right-up */
-            CalculateSlidingMoves(
-                Moves, 
-                Board, 
-                QueenSource, 
-                WHITE, 
-                [](BoardBitField BitField) { return BitField << 9; },
-                ~FILE_H);
-
-            /* Diagonal right-down */
-            CalculateSlidingMoves(
-                Moves, 
-                Board, 
-                QueenSource, 
-                WHITE, 
-                [](BoardBitField BitField) { return BitField >> 7; },
-                ~FILE_H);
-
-            QueensSource &= QueensSource - 1;
-        }
-        /* Queen move generation */
-        BoardBitField KingSource = Board->bitboards[WHITE_KING];
-        BitFieldIndex SourceIndex = __builtin_ctzll(KingSource); 
-
-        BoardBitField KingQuietTargets = 0;
-        BoardBitField KingCaptureTargets = 0;
-
-        /* Move up */
-        KingCaptureTargets |= ((KingSource & RANK_8) << 8) & OpposingOccupied;
-        KingQuietTargets   |= ((KingSource & RANK_8) << 8) & ~Occupied;
-
-        /* Move down */
-        KingCaptureTargets |= ((KingSource & RANK_1) >> 8) & OpposingOccupied;
-        KingQuietTargets   |= ((KingSource & RANK_1) >> 8) & ~Occupied;
-
-        /* Move left */
-        KingCaptureTargets |= ((KingSource & RANK_1) >> 1) & OpposingOccupied;
-        KingQuietTargets   |= ((KingSource & RANK_1) >> 1) & ~Occupied;
-
-        /* Move right */
-        KingCaptureTargets |= ((KingSource & RANK_1) << 1) & OpposingOccupied;
-        KingQuietTargets   |= ((KingSource & RANK_1) << 1) & ~Occupied;
-
-        /* Diagonals */
-        KingCaptureTargets |= ((KingSource & FILE_A) << 7) & OpposingOccupied;
-        KingQuietTargets   |= ((KingSource & FILE_A) << 7) & ~Occupied;
-        KingCaptureTargets |= ((KingSource & FILE_H) << 9) & OpposingOccupied;
-        KingQuietTargets   |= ((KingSource & FILE_H) << 9) & ~Occupied;
-
-        KingCaptureTargets |= ((KingSource & FILE_A) >> 9) & OpposingOccupied;
-        KingQuietTargets   |= ((KingSource & FILE_A) >> 9) & ~Occupied;
-        KingCaptureTargets |= ((KingSource & FILE_H) >> 7) & OpposingOccupied;
-        KingQuietTargets   |= ((KingSource & FILE_H) >> 7) & ~Occupied;
-
-        while (KingCaptureTargets) {
-            BitFieldIndex TargetIndex = __builtin_ctzll(KingCaptureTargets);
-            ML_PushBack(Moves, EncodeMove(SourceIndex, TargetIndex, CAPTURE));
-            KingCaptureTargets &= KingCaptureTargets - 1;
-        }
-
-        while (KingQuietTargets) {
-            BitFieldIndex TargetIndex = __builtin_ctzll(KingQuietTargets);
-            ML_PushBack(Moves, EncodeMove(SourceIndex, TargetIndex, QUIET));
-            KingQuietTargets &= KingQuietTargets - 1;
-        }
+    BoardBitField Occupied = GetOccupancy(Board);
+    BoardBitField OpposingOccupied = Side == WHITE ? GetBlackOccupancy(Board) : GetWhiteOccupancy(Board);
+
+    int BitBoardPawnIndex = Side == WHITE ? WHITE_PAWN : BLACK_PAWN;
+    int BitBoardKnightIndex = BitBoardPawnIndex + 1;
+    int BitBoardBishopIndex = BitBoardPawnIndex + 2;
+    int BitBoardRookIndex = BitBoardPawnIndex + 3;
+    int BitBoardQueenIndex = BitBoardPawnIndex + 4;
+    int BitBoardKingIndex = BitBoardPawnIndex + 5;
+
+    BoardBitField SingleStepForward = 0;
+    BoardBitField DoubleStepForward = 0;
+    BoardBitField DiagonalLeftAttack = 0;
+    BoardBitField DiagonalRightAttack = 0;
+    BoardBitField PromotionForward = 0;
+    BoardBitField PromotionAttackLeft = 0;
+    BoardBitField PromotionAttackRight = 0;
+
+    /* Offsets used to get the correct source square */
+    int ForwardStep        = Side == WHITE ? 8 : -8;
+    int ForwardUpLeftStep  = Side == WHITE ? 7 : -9;
+    int ForwardUpRightStep = Side == WHITE ? 9 : -7;
+
+    /* Pawn moves generation changes based on color. (Shift direction) */
+    BoardBitField PawnSource = Board->bitboards[BitBoardPawnIndex];
+    if (Side == WHITE) {
+        /* Moves 'upward' */
+        SingleStepForward = (PawnSource << 8) & ~Occupied;
+        DoubleStepForward = ((PawnSource & RANK_2) << 16) & ~Occupied;
+        DiagonalLeftAttack = ((PawnSource & ~FILE_A) << 7) & OpposingOccupied;
+        DiagonalRightAttack = ((PawnSource & ~FILE_H) << 9) & OpposingOccupied;
+        PromotionForward = ((PawnSource & RANK_7) << 8) & ~Occupied;
+        PromotionAttackLeft = ((PawnSource & RANK_7 & ~FILE_A) << 7) & OpposingOccupied;
+        PromotionAttackRight = ((PawnSource & RANK_7 & ~FILE_H) << 9) & OpposingOccupied;
     }
-    else { 
-        /* Black to move */
+    else if (Side == BLACK) {
+        /* Moves 'downward' */
+        SingleStepForward = (PawnSource >> 8) & ~Occupied;
+        DoubleStepForward = ((PawnSource & RANK_7) >> 16) & ~Occupied;
+        DiagonalLeftAttack = ((PawnSource & ~FILE_A) >> 9) & OpposingOccupied;
+        DiagonalRightAttack = ((PawnSource & ~FILE_H) >> 7) & OpposingOccupied;
+        PromotionForward = ((PawnSource & RANK_2) >> 8) & ~Occupied;
+        PromotionAttackLeft = ((PawnSource & RANK_2 & ~FILE_A) >> 9) & OpposingOccupied;
+        PromotionAttackRight = ((PawnSource & RANK_2 & ~FILE_H) >> 7) & OpposingOccupied;
     }
+    else {
+        assert(false && "We should not reach here");
+    }
+
+    while (SingleStepForward) {
+        BitFieldIndex TargetIndex = __builtin_ctzll(SingleStepForward);
+        BitFieldIndex SourceIndex = TargetIndex - ForwardStep;
+        ML_PushBack(Moves, EncodeMove(SourceIndex, TargetIndex, QUIET));
+
+        SingleStepForward &= SingleStepForward - 1;
+    }
+
+    while (DoubleStepForward) {
+        BitFieldIndex TargetIndex = __builtin_ctzll(SingleStepForward);
+        BitFieldIndex SourceIndex = TargetIndex - ForwardStep * 2;
+        ML_PushBack(Moves, EncodeMove(SourceIndex, TargetIndex, QUIET));
+
+        DoubleStepForward &= DoubleStepForward - 1;
+    }
+
+    while (DiagonalLeftAttack) {
+        BitFieldIndex TargetIndex = __builtin_ctzll(DiagonalLeftAttack);
+        BitFieldIndex SourceIndex = TargetIndex - 7;
+        ML_PushBack(Moves, EncodeMove(SourceIndex, TargetIndex, QUIET));
+
+        DiagonalLeftAttack &= DiagonalLeftAttack - ForwardUpLeftStep;
+    }
+
+    while (DiagonalRightAttack) {
+        BitFieldIndex TargetIndex = __builtin_ctzll(DiagonalRightAttack);
+        BitFieldIndex SourceIndex = TargetIndex - ForwardUpRightStep;
+        ML_PushBack(Moves, EncodeMove(SourceIndex, TargetIndex, QUIET));
+
+        DiagonalRightAttack &= DiagonalRightAttack - 1;
+    }
+
+    while (PromotionForward) {
+        BitFieldIndex TargetIndex = __builtin_ctzll(PromotionForward);
+        BitFieldIndex Source = TargetIndex - ForwardStep;
+
+        move KnightPromotion = EncodeMove(Source, TargetIndex, KNIGHT_PROMOTION);
+        move BishopPromotion = EncodeMove(Source, TargetIndex, BISHOP_PROMOTION);
+        move RookPromotion   = EncodeMove(Source, TargetIndex, ROOK_PROMOTION);
+        move QueenPromotion  = EncodeMove(Source, TargetIndex, QUEEN_PROMOTION);
+
+        ML_PushBack(Moves, KnightPromotion);
+        ML_PushBack(Moves, BishopPromotion);
+        ML_PushBack(Moves, RookPromotion);
+        ML_PushBack(Moves, QueenPromotion);
+
+        PromotionForward &= PromotionForward - 1;
+    }
+
+    while (PromotionAttackLeft) {
+        BitFieldIndex TargetIndex = __builtin_ctzll(PromotionAttackLeft);
+        BitFieldIndex Source = TargetIndex - ForwardUpLeftStep;
+
+        move KnightPromotion = EncodeMove(Source, TargetIndex, KNIGHT_PROMOTION_CAPTURE);
+        move BishopPromotion = EncodeMove(Source, TargetIndex, BISHOP_PROMOTION_CAPTURE);
+        move RookPromotion   = EncodeMove(Source, TargetIndex, ROOK_PROMOTION_CAPTURE);
+        move QueenPromotion  = EncodeMove(Source, TargetIndex, QUEEN_PROMOTION_CAPTURE);
+
+        ML_PushBack(Moves, KnightPromotion);
+        ML_PushBack(Moves, BishopPromotion);
+        ML_PushBack(Moves, RookPromotion);
+        ML_PushBack(Moves, QueenPromotion);
+
+        PromotionAttackLeft &= PromotionAttackLeft - 1;
+    }
+
+    while (PromotionAttackRight) {
+        BitFieldIndex TargetIndex = __builtin_ctzll(PromotionAttackRight);
+        BitFieldIndex Source = TargetIndex - ForwardUpRightStep;
+
+        move KnightPromotion = EncodeMove(Source, TargetIndex, KNIGHT_PROMOTION_CAPTURE);
+        move BishopPromotion = EncodeMove(Source, TargetIndex, BISHOP_PROMOTION_CAPTURE);
+        move RookPromotion   = EncodeMove(Source, TargetIndex, ROOK_PROMOTION_CAPTURE);
+        move QueenPromotion  = EncodeMove(Source, TargetIndex, QUEEN_PROMOTION_CAPTURE);
+
+        ML_PushBack(Moves, KnightPromotion);
+        ML_PushBack(Moves, BishopPromotion);
+        ML_PushBack(Moves, RookPromotion);
+        ML_PushBack(Moves, QueenPromotion);
+
+        PromotionAttackRight &= PromotionAttackRight - 1;
+    }
+
+    /* White Rook move generation */
+    BoardBitField KnightSource = Board->bitboards[BitBoardRookIndex];
+
+    while (KnightSource) {
+        BitFieldIndex SourceSquareIndex = __builtin_ctzll(PromotionAttackRight);
+        BoardBitField Targets = GetKnightAttacks(SourceSquareIndex);
+
+        BoardBitField QuietTargets  = Targets & ~Occupied;
+        BoardBitField CaptureTargets = Targets & OpposingOccupied;
+
+        while (QuietTargets) {
+            BitFieldIndex TargetIndex = __builtin_ctzll(QuietTargets);
+            ML_PushBack(Moves, EncodeMove(SourceSquareIndex, TargetIndex, QUIET));
+            QuietTargets &= QuietTargets - 1;
+        }
+
+        while (CaptureTargets) {
+            BitFieldIndex TargetIndex = __builtin_ctzll(CaptureTargets);
+            ML_PushBack(Moves, EncodeMove(SourceSquareIndex, TargetIndex, CAPTURE));
+            CaptureTargets &= CaptureTargets - 1;
+        }
+
+        KnightSource &= KnightSource - 1;
+    }
+
+    /* White Bishop move generation */
+    BoardBitField BishopsSource = Board->bitboards[BitBoardBishopIndex];
+
+    while (BishopsSource) {
+        BitFieldIndex SourceSquareIndex = __builtin_ctzll(BishopsSource);
+        BoardBitField BishopSource = 1ULL << SourceSquareIndex;
+
+        /* Diagonal left-up */
+        CalculateSlidingMoves(
+            Moves, 
+            Board, 
+            BishopSource, 
+            WHITE, 
+            [](BoardBitField BitField) { return BitField << 7; },
+            ~FILE_A);
+
+        /* Diagonal left-down */
+        CalculateSlidingMoves(
+            Moves, 
+            Board, 
+            BishopSource, 
+            WHITE, 
+            [](BoardBitField BitField) { return BitField >> 9; },
+            ~FILE_A);
+
+        /* Diagonal right-up */
+        CalculateSlidingMoves(
+            Moves, 
+            Board, 
+            BishopSource, 
+            WHITE, 
+            [](BoardBitField BitField) { return BitField << 9; },
+            ~FILE_H);
+
+        /* Diagonal right-down */
+        CalculateSlidingMoves(
+            Moves, 
+            Board, 
+            BishopSource, 
+            WHITE, 
+            [](BoardBitField BitField) { return BitField >> 7; },
+            ~FILE_H);
+
+        BishopsSource &= BishopsSource - 1;
+    }
+
+    /* Rook move generation */
+    BoardBitField RooksSource = Board->bitboards[WHITE_ROOK];
+
+    while (RooksSource) {
+        BitFieldIndex SourceSquareIndex = __builtin_ctzll(RooksSource);
+        BoardBitField RookSource = 1ULL << SourceSquareIndex;
+
+        /* Up */
+        CalculateSlidingMoves(
+            Moves, 
+            Board, 
+            RookSource, 
+            WHITE, 
+            [](BoardBitField BitField) { return BitField << 8; },
+            ~RANK_8);
+
+        /* Down */
+        CalculateSlidingMoves(
+            Moves, 
+            Board, 
+            RookSource, 
+            WHITE, 
+            [](BoardBitField BitField) { return BitField >> 8; },
+            ~RANK_1);
+
+        /* Left */
+        CalculateSlidingMoves(
+            Moves, 
+            Board, 
+            RookSource, 
+            WHITE, 
+            [](BoardBitField BitField) { return BitField >> 1; },
+            ~FILE_A);
+
+        /* Right */
+        CalculateSlidingMoves(
+            Moves, 
+            Board, 
+            RookSource, 
+            WHITE, 
+            [](BoardBitField BitField) { return BitField << 1; },
+            ~FILE_H);
+
+        RooksSource &= RooksSource - 1;
+    }
+
+    /* Queen move generation */
+    BoardBitField QueensSource = Board->bitboards[BitBoardQueenIndex];
+
+    while (QueensSource) {
+        BitFieldIndex SourceSquareIndex = __builtin_ctzll(QueensSource);
+        BoardBitField QueenSource = 1ULL << SourceSquareIndex;
+
+        /* Up */
+        CalculateSlidingMoves(
+            Moves, 
+            Board, 
+            QueenSource, 
+            WHITE, 
+            [](BoardBitField BitField) { return BitField << 8; },
+            ~RANK_8);
+
+        /* Down */
+        CalculateSlidingMoves(
+            Moves, 
+            Board, 
+            QueenSource, 
+            WHITE, 
+            [](BoardBitField BitField) { return BitField >> 8; },
+            ~RANK_1);
+
+        /* Left */
+        CalculateSlidingMoves(
+            Moves, 
+            Board, 
+            QueenSource, 
+            WHITE, 
+            [](BoardBitField BitField) { return BitField >> 1; },
+            ~FILE_A);
+
+        /* Right */
+        CalculateSlidingMoves(
+            Moves, 
+            Board, 
+            QueenSource, 
+            WHITE, 
+            [](BoardBitField BitField) { return BitField << 1; },
+            ~FILE_H);
+
+        /* Diagonal left-up */
+        CalculateSlidingMoves(
+            Moves, 
+            Board, 
+            QueenSource, 
+            WHITE, 
+            [](BoardBitField BitField) { return BitField << 7; },
+            ~FILE_A);
+
+        /* Diagonal left-down */
+        CalculateSlidingMoves(
+            Moves, 
+            Board, 
+            QueenSource, 
+            WHITE, 
+            [](BoardBitField BitField) { return BitField >> 9; },
+            ~FILE_A);
+
+        /* Diagonal right-up */
+        CalculateSlidingMoves(
+            Moves, 
+            Board, 
+            QueenSource, 
+            WHITE, 
+            [](BoardBitField BitField) { return BitField << 9; },
+            ~FILE_H);
+
+        /* Diagonal right-down */
+        CalculateSlidingMoves(
+            Moves, 
+            Board, 
+            QueenSource, 
+            WHITE, 
+            [](BoardBitField BitField) { return BitField >> 7; },
+            ~FILE_H);
+
+        QueensSource &= QueensSource - 1;
+    }
+    /* King move generation */
+    // TODO(tim): Make this two bitmasks instead of shifting around
+    BoardBitField KingSource = Board->bitboards[BitBoardKingIndex];
+    BitFieldIndex SourceIndex = __builtin_ctzll(KingSource); 
+
+    BoardBitField KingQuietTargets = 0;
+    BoardBitField KingCaptureTargets = 0;
+
+    /* Move up */
+    KingCaptureTargets |= ((KingSource & RANK_8) << 8) & OpposingOccupied;
+    KingQuietTargets   |= ((KingSource & RANK_8) << 8) & ~Occupied;
+
+    /* Move down */
+    KingCaptureTargets |= ((KingSource & RANK_1) >> 8) & OpposingOccupied;
+    KingQuietTargets   |= ((KingSource & RANK_1) >> 8) & ~Occupied;
+
+    /* Move left */
+    KingCaptureTargets |= ((KingSource & RANK_1) >> 1) & OpposingOccupied;
+    KingQuietTargets   |= ((KingSource & RANK_1) >> 1) & ~Occupied;
+
+    /* Move right */
+    KingCaptureTargets |= ((KingSource & RANK_1) << 1) & OpposingOccupied;
+    KingQuietTargets   |= ((KingSource & RANK_1) << 1) & ~Occupied;
+
+    /* Diagonals */
+    KingCaptureTargets |= ((KingSource & FILE_A) << 7) & OpposingOccupied;
+    KingQuietTargets   |= ((KingSource & FILE_A) << 7) & ~Occupied;
+    KingCaptureTargets |= ((KingSource & FILE_H) << 9) & OpposingOccupied;
+    KingQuietTargets   |= ((KingSource & FILE_H) << 9) & ~Occupied;
+
+    KingCaptureTargets |= ((KingSource & FILE_A) >> 9) & OpposingOccupied;
+    KingQuietTargets   |= ((KingSource & FILE_A) >> 9) & ~Occupied;
+    KingCaptureTargets |= ((KingSource & FILE_H) >> 7) & OpposingOccupied;
+    KingQuietTargets   |= ((KingSource & FILE_H) >> 7) & ~Occupied;
+
+    while (KingCaptureTargets) {
+        BitFieldIndex TargetIndex = __builtin_ctzll(KingCaptureTargets);
+        ML_PushBack(Moves, EncodeMove(SourceIndex, TargetIndex, CAPTURE));
+        KingCaptureTargets &= KingCaptureTargets - 1;
+    }
+
+    while (KingQuietTargets) {
+        BitFieldIndex TargetIndex = __builtin_ctzll(KingQuietTargets);
+        ML_PushBack(Moves, EncodeMove(SourceIndex, TargetIndex, QUIET));
+        KingQuietTargets &= KingQuietTargets - 1;
+    }
+
+    /* Generate castling moves */
+    BitFieldIndex KingSourceIndex;
+    BitFieldIndex QueensideTarget;
+    BitFieldIndex KingsideTarget;
+    
+    /* Mask used to isolate part of a rank */
+    BoardBitField QueensideMask;
+    BoardBitField KingsideMask;
+
+    /* Expected bitfield value after applying the mask. Makes sure the rank is empty apart from the rook and king */
+    BoardBitField QueensideExpected;
+    BoardBitField KingsideExpected;
+
+
+    if (Side == WHITE) {
+        KingSourceIndex   = 4;
+        QueensideTarget   = 0;
+        KingsideTarget    = 7;
+
+        QueensideMask     = 0xF8;
+        KingsideMask      = 0xF;
+        QueensideExpected = 0x88;
+        KingsideExpected  = 0x9;
+    }
+    else {
+        KingSourceIndex   = 60;
+        QueensideTarget   = 56;
+        KingsideTarget    = 63;
+
+        QueensideMask     = 0xF800000000000000;
+        KingsideMask      = 0xF000000000000000;
+        QueensideExpected = 0x8800000000000000;
+        KingsideExpected  = 0x9000000000000000;
+    }
+
+    /* Queenside */
+    if ((Occupied & QueensideMask) == QueensideExpected && IsQueensideCastlingAvailable(Board, Side)) {
+        ML_PushBack(Moves, EncodeMove(KingSourceIndex, QueensideTarget, QUEEN_CASTLE));
+    }
+    /* Kingside */
+    if ((Occupied & KingsideMask) == KingsideExpected && IsKingsideCastlingAvailable(Board, Side)) {
+        ML_PushBack(Moves, EncodeMove(KingSourceIndex, KingsideTarget, KING_CASTLE));
+    }
+    
 }

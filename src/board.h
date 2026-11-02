@@ -83,9 +83,9 @@ BoardBitField GetWhiteOccupancy(const board *B);
 BoardBitField GetBlackOccupancy(const board *B);
 BoardBitField GetOccupancy(const board *B);
 void PrintBoard(const board *B);
-void ComputeMoves(const board *Board, move_list *Moves);
+void ComputeMoves(const board *Board, side SideToMove, move_list *Moves);
 
-constexpr bool SideToMove(BoardStateBitField State) { return State & 0x1; }
+constexpr bool GetSideToMove(BoardStateBitField State) { return State & 0x1; }
 // TODO(tim): Castling rights here.
 constexpr BitFieldIndex EnPassantSquare(BoardStateBitField State) { return (State >> 5) & 0x3F; }
 

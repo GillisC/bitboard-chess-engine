@@ -8,7 +8,7 @@ int main(void) {
     InitBoard(&Board);
 
     move_list Moves = ML_Create(32);
-    ComputeMoves(&Board, &Moves);
+    ComputeMoves(&Board, WHITE, &Moves);
     PrintBoard(&Board);
     printf("Moves found: %zu\n", Moves.Size);
 
