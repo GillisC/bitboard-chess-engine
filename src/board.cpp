@@ -1,6 +1,8 @@
 #include "board.h"
 #include <assert.h>
 #include <cstdint>
+#include <cstdlib>
+#include <cstring>
 #include <functional>
 
 static bool IsQueensideCastlingAvailable(const board *Board, side Side) {
@@ -79,6 +81,13 @@ void InitBoard(board *B) {
     B->bitboards[BLACK_KING]   = 0x1000000000000000;
 
     B->state = 30; // white side to move (0), all castling rights available, no enpassant
+    B->half_moves = 0;
+    B->full_moves = 0;
+}
+
+void ClearBoard(board *B) {
+    size_t MemoryToClear = sizeof(board);
+    memset(B, 0, MemoryToClear);
 }
 
 BoardBitField GetWhiteOccupancy(const board *B) {
@@ -174,7 +183,6 @@ BoardBitField GetKnightAttacks(BitFieldIndex KnightPosition) {
 
     return(Result);
 }
-
 
 move EncodeMove(BitFieldIndex Source, BitFieldIndex Target, move_type MoveType) {
     move Result = 0;
@@ -642,5 +650,127 @@ void ComputeMoves(const board *Board, side Side, move_list *Moves) {
     if ((Occupied & KingsideMask) == KingsideExpected && IsKingsideCastlingAvailable(Board, Side)) {
         ML_PushBack(Moves, EncodeMove(KingSourceIndex, KingsideTarget, KING_CASTLE));
     }
-    
+}
+
+unsigned int GetBitboardIndexFromChar(const char Char) {
+    switch (Char) {
+        case 'P': return WHITE_PAWN;
+        case 'N': return WHITE_KNIGHT;
+        case 'B': return WHITE_BISHOP;
+        case 'R': return WHITE_ROOK;
+        case 'Q': return WHITE_QUEEN;
+        case 'K': return WHITE_KING;
+        case 'p': return BLACK_PAWN;
+        case 'n': return BLACK_KNIGHT;
+        case 'b': return BLACK_BISHOP;
+        case 'r': return BLACK_ROOK;
+        case 'q': return BLACK_QUEEN;
+        case 'k': return BLACK_KING;
+        default: assert(false && "should not reach here");
+    }
+}
+
+void SetSideToMove(board *Board, side SideToMove) {
+    Board->state |= SideToMove;
+}
+
+void SetCastlingRights(board *Board, bool WhiteKing, bool WhiteQueen, bool BlackKing, bool BlackQueen) {
+    unsigned int Bits = 0;
+    if (WhiteKing)  Bits |= (0x1 << 1);
+    if (WhiteQueen) Bits |= (0x1 << 2);
+    if (BlackKing)  Bits |= (0x1 << 3);
+    if (BlackQueen) Bits |= (0x1 << 4);
+    Board->state |= Bits;
+}
+void SetEnpassantSquare(board *Board, unsigned int Index) {
+    unsigned int Bits = 0x7F & Index;
+    Board->state |= (Bits << 5);
+}
+
+void LoadFEN(board *Board, char *Fen) {
+    assert(Board && Fen);
+    ClearBoard(Board);
+
+    /* Parse the board position */
+    unsigned int Rank = 7;
+    unsigned int File = 0;
+    char CurrentCharacter;
+    while(*Fen != ' ') {
+        CurrentCharacter = *Fen;
+        if (CurrentCharacter >= '1' && CurrentCharacter <= '8') {
+            unsigned int Offset = (unsigned int)(CurrentCharacter - '0');
+            File += Offset;
+        }
+        else if (CurrentCharacter == '/') {
+            Rank--;
+            File = 0;
+        }
+        else {
+            unsigned int BitboardIndex = GetBitboardIndexFromChar(CurrentCharacter);
+            Board->bitboards[BitboardIndex] |= (1ULL << (Rank * 8 + File));
+            File++;
+        }
+        Fen++;
+    }
+    Fen++;
+    /* Side to move */
+    char Side = *Fen;
+    if (Side == 'w') SetSideToMove(Board, WHITE);
+    else SetSideToMove(Board, BLACK);
+
+    Fen += 2;
+    /* Castling rights */
+    unsigned int WhiteKingCastle  = 0;
+    unsigned int WhiteQueenCastle = 0;
+    unsigned int BlackKingCastle  = 0;
+    unsigned int BlackQueenCastle = 0;
+    while (*Fen != ' ') {
+        switch(*Fen) {
+            case 'K': WhiteKingCastle  = 1; break;
+            case 'Q': WhiteQueenCastle = 1; break;
+            case 'k': BlackKingCastle  = 1; break;
+            case 'q': BlackQueenCastle = 1; break;
+        }
+        Fen++;
+    }
+    SetCastlingRights(Board, WhiteKingCastle, WhiteQueenCastle, BlackKingCastle, BlackQueenCastle);
+
+    Fen++;
+    /* En passant */
+    unsigned int EnPassantIndex;
+    if (*Fen == '-') {
+        EnPassantIndex = NO_EN_PASSANT;
+    }
+    else {
+        unsigned int File = (*Fen++) - 'a';
+        unsigned int Rank = *Fen - '1';
+        EnPassantIndex = 1ULL << (Rank * 8 + File);
+    }
+    SetEnpassantSquare(Board, EnPassantIndex);
+
+    /* Half- and Fullmoves */
+    Fen++;
+    unsigned int HalfMoves = strtoul(Fen, &Fen, 10);
+    Fen++;
+    unsigned int FullMoves = strtoul(Fen, &Fen, 10);
+
+    Board->half_moves = HalfMoves;
+    Board->full_moves = FullMoves;
+}
+
+char *ExportFEN(board *Board);
+
+void ExecuteMove(board *Board, move Move) {
+    BitFieldIndex SourceSquare = Move & 0x3F;
+    BitFieldIndex TargetSquare = (Move >> 6) & 0x3F;
+    move_type MoveType = (move_type)((Move >> 12) & 0xF);
+
+    switch(MoveType) {
+        case QUIET: {
+            break;
+        }
+    }
+}
+void UndoMove(board *Board, move Move) {
+
 }
