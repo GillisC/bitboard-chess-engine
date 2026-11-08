@@ -760,13 +760,31 @@ void LoadFEN(board *Board, char *Fen) {
 
 char *ExportFEN(board *Board);
 
+// TOOD(tim): Can this be calculated instead of iterating over the bitboards?
+bitboard GetBitboardIndexFromSquare(board *Board, BoardBitField PieceMask) {
+    for (unsigned int BitBoardIndex = WHITE_PAWN; BitBoardIndex < NUM_BITBOARDS; BitBoardIndex++) {
+        if ((PieceMask & Board->bitboards[BitBoardIndex]) > 0) {
+            return (bitboard)BitBoardIndex;
+        }
+    }
+}
+
 void ExecuteMove(board *Board, move Move) {
-    BitFieldIndex SourceSquare = Move & 0x3F;
-    BitFieldIndex TargetSquare = (Move >> 6) & 0x3F;
+    BitFieldIndex SourceSquareIndex = Move & 0x3F;
+    BitFieldIndex TargetSquareIndex = (Move >> 6) & 0x3F;
     move_type MoveType = (move_type)((Move >> 12) & 0xF);
+
+    BoardBitField SourcePosition = 1ULL << SourceSquareIndex;
+    BoardBitField TargetPosition = 1ULL << TargetSquareIndex;
+    BoardBitField SourceBitBoard = Board->bitboards[GetBitboardIndexFromSquare(Board, SourcePosition)];
 
     switch(MoveType) {
         case QUIET: {
+            SourceBitBoard |= TargetPosition;
+            SourceBitBoard &= ~SourcePosition;
+            break;
+        }
+        case DOUBLE_PAWN_PUSH: {
             break;
         }
     }

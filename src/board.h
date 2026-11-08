@@ -18,7 +18,7 @@ enum side {
     BLACK
 };
 
-enum bitboards {
+enum bitboard {
     WHITE_PAWN,
     WHITE_KNIGHT,
     WHITE_BISHOP,
